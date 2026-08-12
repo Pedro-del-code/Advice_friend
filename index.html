@@ -17,7 +17,10 @@
     padding: 18px 48px; font-size: 22px; letter-spacing: 4px;
     background: transparent; color: #eee; border: 2px solid #eee;
     cursor: pointer; border-radius: 6px; transition: all .2s;
+    -webkit-tap-highlight-color: transparent;
+    touch-action: manipulation;
   }
+  #playBtn:disabled { opacity: 0.5; }
   #playBtn:hover { background: #eee; color: #000; }
 
   #jumpscare {
@@ -44,7 +47,18 @@
     75% { transform: translate(-8px, -6px); }
     100% { transform: translate(0,0); }
   }
-  #ytPlayer { position: fixed; top: -9999px; left: -9999px; }
+  /* Player fica DENTRO da área visível (não em -9999px) e com tamanho
+     real mínimo, só que invisível via opacity. Muitos navegadores mobile
+     pausam/nunca iniciam vídeos com display:none, tamanho 0 ou fora da
+     tela — é uma otimização de bateria deles. */
+  #ytPlayer {
+    position: fixed;
+    top: 0; left: 0;
+    width: 2px; height: 2px;
+    opacity: 0;
+    pointer-events: none;
+    overflow: hidden;
+  }
 
   #dateStamp {
     position: fixed;
@@ -86,7 +100,8 @@
 
   let player;
   let ytReady = false;
-  let pendingUnmute = false; // true se o usuário clicou em Play antes da API estar pronta
+  let playRequested = false; // true assim que o usuário clica em Play
+  let scareStarted = false;  // evita disparar o susto duas vezes
 
   // Carrega a API do YouTube dinamicamente
   const tag = document.createElement('script');
@@ -95,30 +110,24 @@
 
   function onYouTubeIframeAPIReady() {
     player = new YT.Player('ytPlayer', {
-      height: '0',
-      width: '0',
+      height: '2',
+      width: '2',
       videoId: YOUTUBE_VIDEO_ID,
       playerVars: {
-        'autoplay': 1,   // toca sozinho, mas mudo (navegador sempre permite autoplay mudo)
-        'mute': 1,
+        'autoplay': 0,
         'controls': 0,
         'disablekb': 1,
         'loop': 1,
+        'playsinline': 1, // essencial no iOS: sem isso ele tenta abrir em tela cheia
         'playlist': YOUTUBE_VIDEO_ID // necessário para o loop funcionar
       },
       events: {
-        'onReady': (e) => {
+        'onReady': () => {
           ytReady = true;
-          // Começa a tocar mudo assim que a página carrega. Isso "aquece"
-          // o player, então quando o usuário clicar em Play, o único
-          // trabalho que sobra é desmutar — o que os navegadores sempre
-          // permitem dentro de um clique real do usuário.
-          e.target.mute();
-          e.target.playVideo();
-          // Se o usuário já clicou em Play antes disso terminar de carregar
-          if (pendingUnmute) {
-            e.target.unMute();
-            e.target.setVolume(100);
+          // Se o usuário já tinha clicado em Play antes da API carregar,
+          // dispara a reprodução agora.
+          if (playRequested) {
+            startPlayback();
           }
         },
         'onStateChange': onPlayerStateChange,
@@ -128,13 +137,25 @@
           if (e.data === 101 || e.data === 150) {
             console.error('Esse vídeo não permite ser incorporado em outros sites. Escolha outro ID.');
           }
+          // Mesmo sem som, dispara o susto visual pra não travar a experiência
+          startScareVisuals();
         }
       }
     });
   }
 
-  // Garante o loop mesmo se o parâmetro 'loop' falhar
+  function startPlayback() {
+    player.unMute();
+    player.setVolume(100);
+    player.playVideo();
+  }
+
+  // Sincroniza o susto visual com o momento real em que o áudio começa
+  // a tocar (em vez de um delay "chutado")
   function onPlayerStateChange(event) {
+    if (event.data === YT.PlayerState.PLAYING) {
+      startScareVisuals();
+    }
     if (event.data === YT.PlayerState.ENDED) {
       player.seekTo(0);
       player.playVideo();
@@ -150,22 +171,28 @@
   const dateStamp = document.getElementById('dateStamp');
 
   playBtn.addEventListener('click', () => {
-    // Mostra as imagens e o som exatamente no mesmo instante do clique
+    playBtn.disabled = true;
+    playBtn.textContent = '...';
+
+    // Chamada direta e síncrona dentro do clique: é isso que garante que
+    // navegadores desktop E mobile liberem o som sem bloqueio de autoplay.
+    if (ytReady && player) {
+      startPlayback();
+    } else {
+      playRequested = true;
+    }
+
+    // Trava de segurança: se por algum motivo o evento PLAYING nunca
+    // disparar (rede lenta, etc.), garante que o susto aconteça mesmo assim.
+    setTimeout(startScareVisuals, 1500);
+  });
+
+  function startScareVisuals() {
+    if (scareStarted) return;
+    scareStarted = true;
+
     screenEl.style.display = 'none';
     jumpscareEl.style.display = 'flex';
-
-    // desmuta o som que já está tocando em segundo plano desde que a
-    // página carregou — isso funciona porque estamos dentro de um clique
-    // real do usuário, o que os navegadores sempre permitem.
-    if (ytReady && player && player.unMute) {
-      player.unMute();
-      player.setVolume(100);
-      // garante que está tocando (caso algo tenha pausado)
-      player.playVideo();
-    } else {
-      // API/player ainda não carregou: marca para desmutar assim que estiver pronto
-      pendingUnmute = true;
-    }
 
     // efeito de tremor na tela
     document.body.classList.add('shake');
@@ -193,7 +220,7 @@
     setTimeout(() => {
       dateStamp.classList.add('show');
     }, 1000);
-  });
+  }
 </script>
 
 </body>
