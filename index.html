@@ -86,7 +86,7 @@
 
   let player;
   let ytReady = false;
-  let pendingPlay = false; // true se o usuário clicou antes da API estar pronta
+  let pendingUnmute = false; // true se o usuário clicou em Play antes da API estar pronta
 
   // Carrega a API do YouTube dinamicamente
   const tag = document.createElement('script');
@@ -99,24 +99,26 @@
       width: '0',
       videoId: YOUTUBE_VIDEO_ID,
       playerVars: {
-        'autoplay': 0,
+        'autoplay': 1,   // toca sozinho, mas mudo (navegador sempre permite autoplay mudo)
+        'mute': 1,
         'controls': 0,
         'disablekb': 1,
         'loop': 1,
         'playlist': YOUTUBE_VIDEO_ID // necessário para o loop funcionar
       },
       events: {
-        'onReady': () => {
+        'onReady': (e) => {
           ytReady = true;
-          // Pré-carrega/bufferiza o vídeo assim que a página abre, SEM tocar.
-          // Isso elimina o atraso entre o clique em "Play" e o som começar.
-          player.cueVideoById(YOUTUBE_VIDEO_ID);
-          // Se o usuário já tinha clicado em Play antes da API carregar,
-          // dispara a reprodução agora.
-          if (pendingPlay) {
-            player.playVideo();
-            player.unMute();
-            player.setVolume(100);
+          // Começa a tocar mudo assim que a página carrega. Isso "aquece"
+          // o player, então quando o usuário clicar em Play, o único
+          // trabalho que sobra é desmutar — o que os navegadores sempre
+          // permitem dentro de um clique real do usuário.
+          e.target.mute();
+          e.target.playVideo();
+          // Se o usuário já clicou em Play antes disso terminar de carregar
+          if (pendingUnmute) {
+            e.target.unMute();
+            e.target.setVolume(100);
           }
         },
         'onStateChange': onPlayerStateChange,
@@ -152,14 +154,17 @@
     screenEl.style.display = 'none';
     jumpscareEl.style.display = 'flex';
 
-    // inicia o som em loop (já pré-carregado, então toca quase sem atraso)
-    if (ytReady && player && player.playVideo) {
-      player.playVideo();
+    // desmuta o som que já está tocando em segundo plano desde que a
+    // página carregou — isso funciona porque estamos dentro de um clique
+    // real do usuário, o que os navegadores sempre permitem.
+    if (ytReady && player && player.unMute) {
       player.unMute();
       player.setVolume(100);
+      // garante que está tocando (caso algo tenha pausado)
+      player.playVideo();
     } else {
-      // API ainda não carregou: marca para tocar assim que estiver pronta
-      pendingPlay = true;
+      // API/player ainda não carregou: marca para desmutar assim que estiver pronto
+      pendingUnmute = true;
     }
 
     // efeito de tremor na tela
