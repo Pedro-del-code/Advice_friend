@@ -70,6 +70,7 @@
 
   let player;
   let ytReady = false;
+  let pendingPlay = false; // true se o usuário clicou antes da API estar pronta
 
   // Carrega a API do YouTube dinamicamente
   const tag = document.createElement('script');
@@ -89,8 +90,22 @@
         'playlist': YOUTUBE_VIDEO_ID // necessário para o loop funcionar
       },
       events: {
-        'onReady': () => { ytReady = true; },
-        'onStateChange': onPlayerStateChange
+        'onReady': () => {
+          ytReady = true;
+          // Se o usuário já tinha clicado em Play antes da API carregar,
+          // dispara a reprodução agora.
+          if (pendingPlay) {
+            player.playVideo();
+          }
+        },
+        'onStateChange': onPlayerStateChange,
+        'onError': (e) => {
+          // Códigos comuns: 101/150 = incorporação desativada pelo dono do vídeo
+          console.error('Erro no player do YouTube. Código:', e.data);
+          if (e.data === 101 || e.data === 150) {
+            console.error('Esse vídeo não permite ser incorporado em outros sites. Escolha outro ID.');
+          }
+        }
       }
     });
   }
@@ -114,6 +129,11 @@
     // inicia o som em loop
     if (ytReady && player && player.playVideo) {
       player.playVideo();
+      player.unMute();
+      player.setVolume(100);
+    } else {
+      // API ainda não carregou: marca para tocar assim que estiver pronta
+      pendingPlay = true;
     }
 
     screenEl.style.display = 'none';
